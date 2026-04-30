@@ -25,9 +25,37 @@
     "@std/path": "jsr:@std/path@^1"
   },
 
+  "publish": {
+    "include": [
+      "mod.ts",
+      "types.ts",
+      "server.ts",
+      "middleware.ts",
+      "auth.ts",
+      "spa.ts",
+      "transpile.ts",
+      "events.ts",
+      "ws.ts",
+      "assets.ts",
+      "bundle.ts",
+      "logger.ts",
+      "adapters/deno.ts",
+      "adapters/node.ts",
+      "adapters/cloudflare.ts",
+      "README.md",
+      "LICENSE"
+    ],
+    "exclude": [
+      "deno.lock",
+      "examples/",
+      "scripts/"
+    ]
+  },
+
   "tasks": {
     "check": "deno check mod.ts",
-    "update": "deno cache --reload --lock=deno.lock mod.ts"
+    "update": "deno cache --reload --lock=deno.lock mod.ts",
+    "publish": "deno publish"
   },
 
   "compilerOptions": {

@@ -28,19 +28,6 @@ export interface CredentialOptions<T> {
 	format?: (value: string) => string
 }
 
-export interface RefreshOptions<T> {
-	isExpired: (session: T) => boolean
-	renew: (session: T) => Promise<T>
-}
-
-export interface AuthOptions<T extends Record<string, unknown>> {
-	store: SessionStore<T>
-	cookie?: CookieOptions
-	extract: (response: unknown) => T
-	credential?: CredentialOptions<T>
-	refresh?: RefreshOptions<T>
-}
-
 // ─── SPA ──────────────────────────────────────────────────────────────────────
 
 export interface SpaOptions {

@@ -7,6 +7,7 @@ export {
 	createMemoryStore,
 	createSessionMiddleware,
 } from './auth.ts'
+export type { AuthOptions } from './auth.ts'
 export {
 	requestId,
 	errorHandler,
@@ -21,7 +22,6 @@ export type {
 	WsOptions,
 	SessionStore,
 	CookieOptions,
-	AuthOptions,
 	CorsOptions,
 	AssetsOptions,
 	EventBus,
