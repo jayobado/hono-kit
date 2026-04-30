@@ -111,6 +111,7 @@ export interface Transpiler {
 	warm?: (root: string, opts: TranspileFileOptions) => Promise<number>
 }
 
+/** Options for transpiling a file. */
 export interface TranspileFileOptions {
 	importMap?: string | { imports: Record<string, string> }
 	compilerOptions?: Record<string, unknown>
