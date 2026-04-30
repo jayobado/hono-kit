@@ -1,11 +1,8 @@
 import type { Hono, Context, MiddlewareHandler } from "hono"
-
-// ─── Re-exports ───────────────────────────────────────────────────────────────
-
 export type { Hono, Context, MiddlewareHandler }
 
-// ─── Session ──────────────────────────────────────────────────────────────────
 
+/** Session storage interface. Implement for custom stores (Redis, SQL, KV). */
 export interface SessionStore<T extends Record<string, unknown> = Record<string, unknown>> {
 	get: (sid: string) => Promise<T | undefined>
 	set: (sid: string, data: T, ttl?: number) => Promise<void>
@@ -13,6 +10,7 @@ export interface SessionStore<T extends Record<string, unknown> = Record<string,
 	touch?: (sid: string, ttl?: number) => Promise<void>
 }
 
+/** Cookie configuration for session transport. */
 export interface CookieOptions {
 	name?: string
 	maxAge?: number
@@ -22,14 +20,14 @@ export interface CookieOptions {
 	path?: string
 }
 
+/** Specifies which session field holds the backend credential and how to format the outgoing header. */
 export interface CredentialOptions<T> {
 	field: keyof T
 	header?: string
 	format?: (value: string) => string
 }
 
-// ─── SPA ──────────────────────────────────────────────────────────────────────
-
+/** SPA serving configuration. */
 export interface SpaOptions {
 	root?: string
 	importMap?: string | { imports: Record<string, string> }
@@ -39,8 +37,7 @@ export interface SpaOptions {
 	hmr?: boolean
 }
 
-// ─── API ──────────────────────────────────────────────────────────────────────
-
+/** API layer configuration. */
 export interface ApiOptions {
 	prefix?: string
 	cors?: CorsOptions | string[]
@@ -48,6 +45,7 @@ export interface ApiOptions {
 	middleware?: MiddlewareHandler[]
 }
 
+/** CORS configuration. */
 export interface CorsOptions {
 	origins: string[]
 	methods?: string[]
@@ -56,16 +54,14 @@ export interface CorsOptions {
 	maxAge?: number
 }
 
-// ─── Assets ───────────────────────────────────────────────────────────────────
-
+/** Static asset serving configuration. */
 export interface AssetsOptions {
 	root: string
 	prefix?: string
 	maxAge?: number
 }
 
-// ─── WebSocket ────────────────────────────────────────────────────────────────
-
+/** WebSocket connection state. */
 export interface WsConnection<T = Record<string, unknown>> {
 	id: string
 	session?: T
@@ -75,6 +71,7 @@ export interface WsConnection<T = Record<string, unknown>> {
 	channels: Set<string>
 }
 
+/** Channel operations available in WebSocket handlers. */
 export interface ChannelApi {
 	join: (channel: string) => void
 	leave: (channel: string) => void
@@ -82,6 +79,7 @@ export interface ChannelApi {
 	members: (channel: string) => string[]
 }
 
+/** WebSocket layer configuration. */
 export interface WsOptions<T = Record<string, unknown>> {
 	path?: string
 	authenticate?: (c: Context) => Promise<T | false>
@@ -93,22 +91,21 @@ export interface WsOptions<T = Record<string, unknown>> {
 	onError?: (conn: WsConnection<T>, err: unknown) => void
 }
 
-// ─── Events ───────────────────────────────────────────────────────────────────
-
+/** Event bus interface for pub/sub messaging. */
 export interface EventBus {
 	emit: (channel: string, data: unknown) => void
 	on: (channel: string, handler: (data: unknown) => void) => () => void
 	stream: (c: Context, channel: string) => Response
 }
 
+/** Adapter for cross-process event broadcasting (Redis, Durable Objects, etc). */
 export interface BroadcastAdapter {
 	publish: (channel: string, data: unknown) => Promise<void>
 	subscribe: (channel: string, handler: (data: unknown) => void) => Promise<void>
 	unsubscribe: (channel: string) => Promise<void>
 }
 
-// ─── Transpiler ───────────────────────────────────────────────────────────────
-
+/** Transpiler interface. Implement for custom transpilation backends. */
 export interface Transpiler {
 	transpile: (specifier: string, opts: TranspileFileOptions) => Promise<string | null>
 	warm?: (root: string, opts: TranspileFileOptions) => Promise<number>
@@ -119,8 +116,7 @@ export interface TranspileFileOptions {
 	compilerOptions?: Record<string, unknown>
 }
 
-// ─── Adapter ──────────────────────────────────────────────────────────────────
-
+/** Runtime adapter interface. Implement for custom deployment targets. */
 export interface RuntimeAdapter {
 	name: string
 	serve: (app: Hono, opts: { host: string; port: number }) => void
@@ -132,8 +128,7 @@ export interface RuntimeAdapter {
 	createTranspiler?: () => Transpiler
 }
 
-// ─── Server ───────────────────────────────────────────────────────────────────
-
+/** Top-level server configuration. */
 export interface ServerOptions<T extends Record<string, unknown> = Record<string, unknown>> {
 	port?: number
 	host?: string
@@ -151,8 +146,7 @@ export interface ServerOptions<T extends Record<string, unknown> = Record<string
 	ws?: WsOptions<T>
 }
 
-// ─── Build ────────────────────────────────────────────────────────────────────
-
+/** Build configuration. */
 export interface BuildOptions {
 	entry: string
 	outDir?: string

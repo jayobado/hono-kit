@@ -1,8 +1,13 @@
+/**
+ * @module
+ * Event bus for pub/sub messaging. Routes events to WebSocket connections
+ * and SSE streams. Supports BroadcastAdapter for horizontal scaling.
+ */
 import type { Context } from 'hono'
 import type { EventBus, BroadcastAdapter } from './types.ts'
 
-// ─── createEventBus ───────────────────────────────────────────────────────────
 
+/** Creates an event bus for pub/sub messaging across WebSocket, SSE, and server-side listeners. */
 export function createEventBus(adapter?: BroadcastAdapter): EventBus {
 	const listeners = new Map<string, Set<(data: unknown) => void>>()
 	const sseStreams = new Map<string, Set<ReadableStreamDefaultController>>()

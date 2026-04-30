@@ -77,7 +77,7 @@ function resolveCors(cors: ServerOptions['cors']): {
 	}
 }
 
-// ─── createServer ─────────────────────────────────────────────────────────────
+/** Composes all layers into a single Hono app and starts the server. */
 
 export async function createServer<T extends Record<string, unknown> = Record<string,unknown>>(opts: ServerOptions<T>): Promise < HonoType > {
 	const {
@@ -205,7 +205,7 @@ if (opts.ws) Log.info(`WebSocket: ${opts.ws.path ?? '/ws'}`)
 return app
 }
 
-// ─── For Cloudflare Workers — export the app without starting a server ────────
+/** Synchronous app factory for Cloudflare Workers. Returns a Hono app without starting a server. */
 
 export function createApp<T extends Record<string, unknown> = Record<string, unknown>>(
 	opts: Omit<ServerOptions<T>, 'port' | 'host' | 'adapter'>

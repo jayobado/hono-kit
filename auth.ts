@@ -1,3 +1,9 @@
+/**
+ * @module
+ * Authentication and session management. Provides createAuth() for typed auth handling,
+ * createMemoryStore() for in-memory sessions, and stateless encrypted cookie sessions.
+ */
+
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { createMiddleware } from 'hono/factory'
 import type { Context, MiddlewareHandler } from 'hono'
@@ -21,10 +27,14 @@ interface AuthBase<T extends Record<string, unknown>> {
 	refresh?: RefreshOptions<T>
 }
 
+/** Auth configuration for server-side session store. */
+
 interface AuthWithStore<T extends Record<string, unknown>> extends AuthBase<T> {
 	store: SessionStore<T>
 	stateless?: never
 }
+
+/** Auth configuration for stateless encrypted cookie sessions. */
 
 interface AuthStateless<T extends Record<string, unknown>> extends AuthBase<T> {
 	store?: never
@@ -41,6 +51,8 @@ interface StoreEntry<T> {
 	data: T
 	expiresAt?: number
 }
+
+/** In-memory session store with TTL support and automatic cleanup. */
 
 export function createMemoryStore<T extends Record<string, unknown> = Record<string, unknown>>(): SessionStore<T> {
 	const store = new Map<string, StoreEntry<T>>()
@@ -104,7 +116,7 @@ export function createMemoryStore<T extends Record<string, unknown> = Record<str
 	}
 }
 
-// ─── Session middleware ───────────────────────────────────────────────────────
+/** Middleware that resolves session cookies and sets the session on the Hono context. */
 
 export function createSessionMiddleware<T extends Record<string, unknown>>(
 	store: SessionStore<T>,
@@ -137,18 +149,27 @@ function resolveCookieOptions(opts?: CookieOptions): Required<CookieOptions> {
 	}
 }
 
+/** Auth handler interface returned by createAuth(). */
 export interface Auth<T extends Record<string, unknown>> {
+	/** Extracts session from backend response, stores it, and sets an httpOnly cookie. */
 	login: (c: Context, backendResponse: unknown) => Promise<T>
+	/** Deletes the session and clears the cookie. */
 	logout: (c: Context) => Promise<void>
+	/** Returns middleware that resolves cookies to sessions and auto-refreshes expired tokens. */
 	middleware: () => MiddlewareHandler
+	/** Returns the typed session from the Hono context, or undefined. */
 	getSession: (c: Context) => T | undefined
+	/** Returns the backend credential value from the session. */
 	getToken: (c: Context) => string | undefined
+	/** Returns headers for proxying requests to backend services. */
 	backendHeaders: (c: Context) => Record<string, string>
+	/** Guard middleware that rejects unauthenticated requests with 401. */
 	require: () => MiddlewareHandler
+	/** Guard middleware that rejects requests where check(session) returns false with 403. */
 	requireRole: (check: (session: T) => boolean, message?: string) => MiddlewareHandler
 }
 
-// ─── createAuth ───────────────────────────────────────────────────────────────
+/** Typed auth handler with login, logout, middleware, guards, and backend credential relay. */
 
 export function createAuth<T extends Record<string, unknown>>(opts: AuthOptions<T>): Auth<T> {
 	const cookie = resolveCookieOptions(opts.cookie)

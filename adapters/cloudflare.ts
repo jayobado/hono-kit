@@ -1,3 +1,9 @@
+/**
+ * @module
+ * Cloudflare Workers adapter. Use createApp() instead of createServer()
+ * and export the result as the default export. SPA must be pre-built.
+ */
+
 import type { Hono } from 'hono'
 import type { RuntimeAdapter } from '../types.ts'
 

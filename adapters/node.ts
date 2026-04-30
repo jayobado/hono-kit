@@ -1,3 +1,9 @@
+/**
+ * @module
+ * Node.js runtime adapter. Uses @hono/node-server for HTTP, node:fs for
+ * file I/O, and esbuild for TypeScript transpilation.
+ */
+
 import process from 'node:process'
 import type { Hono } from 'hono'
 import type { RuntimeAdapter, Transpiler } from '../types.ts'

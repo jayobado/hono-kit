@@ -2,6 +2,7 @@ import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
 import { Log } from './logger.ts'
 
+/** Assigns a unique UUID to each request via the requestId context variable. */
 export function requestId(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		c.set('requestId', crypto.randomUUID())
@@ -9,6 +10,7 @@ export function requestId(): MiddlewareHandler {
 	})
 }
 
+/** Catches unhandled errors, logs them, and returns a 500 JSON response. */
 export function errorHandler(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		try {
@@ -22,6 +24,7 @@ export function errorHandler(): MiddlewareHandler {
 	})
 }
 
+/** Sets security headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy. */
 export function securityHeaders(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		await next()
@@ -32,6 +35,7 @@ export function securityHeaders(): MiddlewareHandler {
 	})
 }
 
+/** Logs method, path, status, and duration for each request. */
 export function accessLog(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		const start = performance.now()
@@ -52,6 +56,7 @@ export function accessLog(): MiddlewareHandler {
 	})
 }
 
+/** Gzip compresses text-based responses (HTML, JS, JSON, SVG). */
 export function compress(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		await next()

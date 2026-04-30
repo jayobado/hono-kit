@@ -1,3 +1,9 @@
+/**
+ * @module
+ * Deno runtime adapter. Uses Deno.serve for HTTP, Deno filesystem APIs
+ * for file I/O, and @deno/emit for TypeScript transpilation.
+ */
+
 import type { Hono } from "hono"
 import type { RuntimeAdapter } from '../types.ts'
 import { Log } from '../logger.ts'

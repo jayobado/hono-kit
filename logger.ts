@@ -89,6 +89,7 @@ function enqueue(level: Level, content: string): void {
 	}
 }
 
+/** Buffered file logger with daily rotation. Writes to ./logs/{level}_{date}.log and console. */
 export const Log = {
 	debug: (content: string): void => enqueue('debug', content),
 	info: (content: string): void => enqueue('info', content),

@@ -1,3 +1,9 @@
+/**
+ * @module
+ * A full-stack toolkit built on Hono. Serves SPAs, APIs, server-rendered pages,
+ * and WebSocket connections from a single createServer() call.
+ */
+
 export { createServer, createApp } from './server.ts'
 export { createEventBus } from './events.ts'
 export { build } from './bundle.ts'

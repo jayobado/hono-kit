@@ -1,3 +1,9 @@
+/**
+ * @module
+ * Production build tool. Bundles TypeScript SPAs into static files
+ * with content hashing for deployment to any static host.
+ */
+
 import { Log } from './logger.ts'
 import type { BuildOptions } from './types.ts'
 
@@ -39,8 +45,7 @@ function createLoader() {
 	}
 }
 
-// ─── build ────────────────────────────────────────────────────────────────────
-
+/** Bundles a TypeScript SPA into static files with content hashing for production deployment. */
 export async function build(opts: BuildOptions): Promise<void> {
 	const {
 		entry,
