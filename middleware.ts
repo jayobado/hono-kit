@@ -1,18 +1,15 @@
 import { createMiddleware } from 'hono/factory'
+import type { MiddlewareHandler } from 'hono'
 import { Log } from './logger.ts'
 
-// ─── Request ID ───────────────────────────────────────────────────────────────
-
-export function requestId() {
+export function requestId(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		c.set('requestId', crypto.randomUUID())
 		await next()
 	})
 }
 
-// ─── Error handler ────────────────────────────────────────────────────────────
-
-export function errorHandler() {
+export function errorHandler(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		try {
 			await next()
@@ -25,9 +22,7 @@ export function errorHandler() {
 	})
 }
 
-// ─── Security headers ────────────────────────────────────────────────────────
-
-export function securityHeaders() {
+export function securityHeaders(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		await next()
 		c.header('X-Content-Type-Options', 'nosniff')
@@ -37,9 +32,7 @@ export function securityHeaders() {
 	})
 }
 
-// ─── Access log ───────────────────────────────────────────────────────────────
-
-export function accessLog() {
+export function accessLog(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		const start = performance.now()
 		await next()
@@ -59,9 +52,7 @@ export function accessLog() {
 	})
 }
 
-// ─── Compression ──────────────────────────────────────────────────────────────
-
-export function compress() {
+export function compress(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
 		await next()
 

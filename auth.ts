@@ -137,9 +137,20 @@ function resolveCookieOptions(opts?: CookieOptions): Required<CookieOptions> {
 	}
 }
 
+export interface Auth<T extends Record<string, unknown>> {
+	login: (c: Context, backendResponse: unknown) => Promise<T>
+	logout: (c: Context) => Promise<void>
+	middleware: () => MiddlewareHandler
+	getSession: (c: Context) => T | undefined
+	getToken: (c: Context) => string | undefined
+	backendHeaders: (c: Context) => Record<string, string>
+	require: () => MiddlewareHandler
+	requireRole: (check: (session: T) => boolean, message?: string) => MiddlewareHandler
+}
+
 // ─── createAuth ───────────────────────────────────────────────────────────────
 
-export function createAuth<T extends Record<string, unknown>>(opts: AuthOptions<T>) {
+export function createAuth<T extends Record<string, unknown>>(opts: AuthOptions<T>): Auth<T> {
 	const cookie = resolveCookieOptions(opts.cookie)
 	const isStateless = 'stateless' in opts && opts.stateless !== undefined
 
