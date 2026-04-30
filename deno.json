@@ -1,0 +1,37 @@
+{
+  "name": "@jayobado/hono-kit",
+  "version": "0.1.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts",
+    "./auth": "./auth.ts",
+    "./events": "./events.ts",
+    "./bundle": "./bundle.ts",
+    "./adapters/deno": "./adapters/deno.ts",
+    "./adapters/node": "./adapters/node.ts",
+    "./adapters/cloudflare": "./adapters/cloudflare.ts"
+  },
+
+  "imports": {
+    "hono": "npm:hono@^4.12.0",
+    "hono/factory": "npm:hono@^4.12.0/factory",
+    "hono/cors": "npm:hono@^4.12.0/cors",
+    "hono/cookie": "npm:hono@^4.12.0/cookie",
+    "hono/ws": "npm:hono@^4.12.0/ws",
+    "@hono/node-server": "npm:@hono/node-server@^1.13.0",
+    "esbuild": "npm:esbuild@^0.24.0",
+    "@deno/emit": "jsr:@deno/emit@^0.46.0",
+    "@std/http": "jsr:@std/http@^1.0.0",
+    "@std/path": "jsr:@std/path@^1"
+  },
+
+  "tasks": {
+    "check": "deno check mod.ts",
+    "update": "deno cache --reload --lock=deno.lock mod.ts"
+  },
+
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["ESNext", "DOM", "Deno.NS"]
+  }
+}
