@@ -2,10 +2,16 @@ import { createMiddleware } from 'hono/factory'
 import type { MiddlewareHandler } from 'hono'
 import { Log } from './logger.ts'
 
-/** Assigns a unique UUID to each request via the requestId context variable. */
+/** Assigns a request ID to each request. Forwards incoming X-Request-ID or X-Correlation-ID
+ * if present; otherwise generates a new UUID. Sets X-Request-ID on the response. */
 export function requestId(): MiddlewareHandler {
 	return createMiddleware(async (c, next) => {
-		c.set('requestId', crypto.randomUUID())
+		const incoming =
+			c.req.header('x-request-id') ??
+			c.req.header('x-correlation-id') ??
+			crypto.randomUUID()
+		c.set('requestId', incoming)
+		c.header('X-Request-ID', incoming)
 		await next()
 	})
 }
@@ -35,8 +41,15 @@ export function securityHeaders(): MiddlewareHandler {
 	})
 }
 
+export interface AccessLogOptions {
+	/** Output format. 'text' for human-readable, 'json' for structured logging. Default: 'text'. */
+	format?: 'text' | 'json'
+}
+
 /** Logs method, path, status, and duration for each request. */
-export function accessLog(): MiddlewareHandler {
+export function accessLog(opts: AccessLogOptions = {}): MiddlewareHandler {
+	const format = opts.format ?? 'text'
+
 	return createMiddleware(async (c, next) => {
 		const start = performance.now()
 		await next()
@@ -44,7 +57,11 @@ export function accessLog(): MiddlewareHandler {
 		const method = c.req.method
 		const path = new URL(c.req.url).pathname
 		const status = c.res.status
-		const line = `${method} ${path} ${status} ${ms}ms`
+		const rid = c.get('requestId') ?? '-'
+
+		const line = format === 'json'
+			? JSON.stringify({ rid, method, path, status, ms: parseFloat(ms) })
+			: `[${rid}] ${method} ${path} ${status} ${ms}ms`
 
 		if (status >= 500) {
 			Log.error(line)

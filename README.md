@@ -1,677 +1,519 @@
 # hono-kit
 
-A full-stack toolkit built on Hono. Serves SPAs, APIs, server-rendered pages, and WebSocket connections from a single `createServer()` call. Runs on Deno, Node, and Cloudflare Workers.
+A toolkit of composable primitives for building [Hono](https://hono.dev)-based
+API services and BFFs. Each primitive does one thing; the archetype builders
+wire pieces together without hidden behavior.
 
-## What it provides
+Designed for two deployment shapes:
 
-- **SPA serving** — on-the-fly TypeScript transpilation, import rewriting, HMR, SPA fallback
-- **API layer** — REST routes with optional tRPC, CORS, auth guards
-- **Pages / BFF** — server-rendered HTML, backend-for-frontend data aggregation
-- **Auth** — session stores, httpOnly cookies, encrypted stateless sessions, token relay to backends
-- **WebSocket** — connection management, channels, auth before upgrade
-- **Events** — pub/sub event bus, SSE streaming, broadcast adapter for horizontal scaling
-- **Build** — production bundler with content hashing
-- **Runtime agnostic** — Deno, Node, Cloudflare Workers through adapter pattern
+- **API service** — backend behind a BFF or other clients
+- **BFF (Backend-for-Frontend)** — wraps an SPA, holds the session, talks to
+  upstream services with the user's credentials
 
-## Requirements
+Targets Deno (primary), Node.js, and Cloudflare Workers.
 
-- Deno 1.40+ (primary), Node 18+ (via adapter), or Cloudflare Workers
-- Hono 4.12+
+```ts
+import {
+  createAuth, createMemoryStore,
+  defineRoute, defineRoutes,
+  createUpstream,
+  createBff,
+  serveAssets,
+  requestId, errorHandler,
+  serveDeno,
+} from '@jayobado/hono-kit'
+```
 
-## Installation
+## Install
 
-### Deno
-```sh
+```bash
 deno add jsr:@jayobado/hono-kit
 ```
 
-### Node
-```sh
-npm install @jayobado/hono-kit hono @hono/node-server
-```
-
-### Cloudflare Workers
-```sh
-npm install @jayobado/hono-kit hono
-```
-
----
-
-## Quick start
-
-```typescript
-import { createServer, createAuth, createMemoryStore } from '@jayobado/hono-kit'
-
-const auth = createAuth({
-  store: createMemoryStore(),
-  cookie: { secure: false },
-  extract: (res: any) => ({
-    userId: res.user.id,
-    email: res.user.email,
-    role: res.user.role,
-  }),
-})
-
-await createServer({
-  port: 3000,
-
-  spa: {
-    root: './client',
-    importMap: './deno.json',
-  },
-
-  api: {
-    prefix: '/api',
-    middleware: [auth.middleware()],
-    routes: (app) => {
-      app.post('/auth/login', async (c) => {
-        const { email, password } = await c.req.json()
-        // authenticate against your backend
-        const session = await auth.login(c, { user: { id: '1', email, role: 'admin' } })
-        return c.json({ userId: session.userId, email: session.email })
-      })
-
-      app.post('/auth/logout', async (c) => {
-        await auth.logout(c)
-        return c.json({ ok: true })
-      })
-
-      app.get('/me', auth.require(), (c) => {
-        return c.json(auth.getSession(c))
-      })
-    },
-  },
-})
-```
+Or in `deno.json`:
 
 ```json
 {
-  "tasks": {
-    "dev": "deno run --watch --allow-all server.ts",
-    "start": "ENV=production deno run --allow-all server.ts",
-    "build": "deno run --allow-all scripts/build.ts"
+  "imports": {
+    "@jayobado/hono-kit": "jsr:@jayobado/hono-kit@^0.4"
   }
 }
 ```
 
-```bash
-deno task dev
-```
+## At a glance
 
----
+```ts
+import { Hono } from 'hono'
+import {
+  createAuth, createMemoryStore,
+  defineRoute, defineRoutes,
+  createUpstream,
+  createBff, serveAssets,
+  requestId, accessLog, errorHandler,
+  serveDeno,
+} from '@jayobado/hono-kit'
 
-## `createServer()`
+type Session = { userId: string; role: 'admin' | 'user'; upstreamToken: string }
 
-Composes all layers into a single Hono app and starts the server.
-
-```typescript
-await createServer({
-  // ── Runtime ─────────────────────────────────────────────────────────
-  port: 3000,
-  host: 'localhost',
-  adapter: 'deno',              // 'deno' | 'node' | 'cloudflare' | RuntimeAdapter
-
-  // ── Global middleware ───────────────────────────────────────────────
-  middleware: [rateLimiter],
-  cors: ['https://myapp.com'],  // or CorsOptions object
-
-  // ── API layer ───────────────────────────────────────────────────────
-  api: {
-    prefix: '/api',
-    cors: ['https://myapp.com'],
-    middleware: [auth.middleware()],
-    routes: (app) => { ... },
-  },
-
-  // ── Pages / BFF ─────────────────────────────────────────────────────
-  pages: (app) => {
-    app.get('/report/:id', async (c) => {
-      const data = await fetchReport(c.req.param('id'))
-      return c.html(renderReport(data))
-    })
-  },
-
-  // ── SPA ─────────────────────────────────────────────────────────────
-  spa: {
-    root: './client',
-    importMap: './deno.json',
-    strategy: 'lazy',           // 'lazy' | 'eager' | 'build'
-    hmr: true,
-    compilerOptions: { jsx: 'react-jsx', jsxImportSource: 'react' },
-  },
-
-  // ── Static assets ───────────────────────────────────────────────────
-  assets: './public',           // or { root: './public', prefix: '/static', maxAge: 86400 }
-
-  // ── WebSocket ───────────────────────────────────────────────────────
-  ws: {
-    path: '/ws',
-    authenticate: async (c) => getSession(c) || false,
-    onConnect: (conn, channels) => { ... },
-    onMessage: (conn, data, channels) => { ... },
-    onClose: (conn) => { ... },
-  },
-})
-```
-
-### Runtime detection
-
-If `adapter` is omitted, the runtime is auto-detected. You can also pass a custom `RuntimeAdapter` object.
-
----
-
-## `createApp()`
-
-Synchronous version for Cloudflare Workers. Returns the Hono app directly without starting a server.
-
-```typescript
-import { createApp } from '@jayobado/hono-kit'
-
-const app = createApp({
-  api: {
-    prefix: '/api',
-    routes: (app) => { ... },
-  },
-})
-
-export default app
-```
-
----
-
-## SPA serving
-
-### Transpilation strategies
-
-| Strategy | When | What happens |
-|---|---|---|
-| `lazy` | Development | Transpiles on first request, caches in memory. HMR enabled by default. |
-| `eager` | Production (Deno/Node) | Transpiles all files at startup before accepting requests. |
-| `build` | Production (Workers/static) | Serves pre-built files only. No transpiler needed at runtime. |
-
-### Import resolution
-
-Import specifiers are rewritten server-side. Versions are resolved from `deno.lock`.
-
-```typescript
-// Source
-import { signal } from '@jayobado/lolo-ui'
-
-// Served to browser as
-import { signal } from '/jsr/@jayobado/lolo-ui/0.1.8/mod.ts'
-```
-
-JSR dependencies are fetched from `jsr.io`, transpiled, and cached. npm dependencies are served via `esm.sh`. Versioned paths are served with `Cache-Control: immutable`.
-
-### Compatible frameworks
-
-| Framework | `compilerOptions` needed |
-|---|---|
-| lolo-ui | No |
-| vue-toolkit | No |
-| React | `jsx: 'react-jsx'`, `jsxImportSource: 'react'` |
-| Solid | `jsx: 'react-jsx'`, `jsxImportSource: 'solid-js/h'` |
-| Preact | `jsx: 'react-jsx'`, `jsxImportSource: 'preact'` |
-
-### HMR
-
-Enabled automatically when strategy is `lazy`. Injects a WebSocket client into HTML responses.
-
-| Change | Behaviour |
-|---|---|
-| `.css` | Stylesheet reload |
-| `.ts` / `.tsx` | Cache invalidated, page reload |
-| `.html` | Full page reload |
-
----
-
-## Auth
-
-### `createAuth()`
-
-Creates a typed auth handler with login, logout, middleware, and guards.
-
-```typescript
-interface MySession {
-  userId: string
-  email: string
-  role: 'admin' | 'user'
-  token: string
-  tokenExpiresAt: number
-}
-
-const auth = createAuth<MySession>({
-  store: createMemoryStore<MySession>(),
-  cookie: { secure: true, maxAge: 60 * 60 * 8 },
-  credential: { field: 'token' },
-
-  extract: (res: any) => ({
-    userId: res.user.id,
-    email: res.user.email,
-    role: res.user.role,
-    token: res.accessToken,
-    tokenExpiresAt: Date.now() + res.expiresIn * 1000,
+const auth = createAuth<Session>({
+  store: createMemoryStore<Session>(),
+  cookie: { name: 'sid', secure: true, sameSite: 'Lax' },
+  toSession: (r: any) => ({
+    userId: r.user.id,
+    role: r.user.role,
+    upstreamToken: r.access_token,
   }),
+  credential: { field: 'upstreamToken' },
+})
 
+const upstream = createUpstream({
+  baseUrl: 'http://internal-api',
+  credentialFrom: (c) => auth.backendHeaders(c),
+})
+
+const api = defineRoutes([
+  defineRoute({
+    method: 'GET',
+    path: '/orders',
+    guards: [auth.require()],
+    handler: async (c) => c.json(await upstream.get(c, '/orders')),
+  }),
+])
+
+const spa = serveAssets({ root: './dist' })
+
+const bff = createBff({
+  middleware: [requestId(), accessLog(), errorHandler()],
+  auth,
+  api,
+  spa,
+  health: { version: '1.0.0' },
+})
+
+await serveDeno(bff, { port: 3000 })
+```
+
+That's a complete BFF in 40 lines. Login, session, route validation, upstream
+forwarding, SPA hosting, and a `/health` endpoint — all explicitly wired,
+nothing hidden.
+
+## Mental model
+your code
+↓
+archetype builders     →   createApiApp, createBff
+↓                       (thin composers, no hidden behavior)
+primitives             →   auth, sessions, routes, upstream, ws, etc.
+↓
+Hono
+
+Three tiers. The archetype builders are convenience — you can always drop down
+to primitives and wire by hand if you want.
+
+## Primitives
+
+### Auth + sessions
+
+`createAuth` is one primitive that handles session lifecycle, cookie
+management, upstream credential storage, credential relay, and access guards.
+Cookie attributes including `domain` are first-class.
+
+```ts
+const auth = createAuth<Session>({
+  store: createMemoryStore<Session>(),
+  cookie: {
+    name: 'admin_sid',
+    domain: '.example.com',   // for multi-portal subdomain scoping
+    secure: true,
+    sameSite: 'Lax',
+  },
+  toSession: (loginResponse) => ({
+    userId: loginResponse.user.id,
+    role: loginResponse.user.role,
+    upstreamToken: loginResponse.access_token,
+  }),
+  credential: {
+    field: 'upstreamToken',
+    header: 'Authorization',
+    format: v => `Bearer ${v}`,
+  },
   refresh: {
-    isExpired: (s) => Date.now() > s.tokenExpiresAt - 30_000,
-    renew: async (s) => {
-      const res = await fetch('http://auth-svc:4000/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: s.refreshToken }),
-      })
-      if (!res.ok) throw new Error('refresh failed')
-      const data = await res.json()
-      return { ...s, token: data.accessToken, tokenExpiresAt: Date.now() + data.expiresIn * 1000 }
-    },
+    isExpired: s => Date.now() > s.expiresAt,
+    renew: async s => { /* call upstream refresh endpoint */ },
   },
 })
+
+// In handlers:
+auth.login(c, loginResponse)        // sets cookie, stores session
+auth.logout(c)                       // clears cookie + store
+auth.getSession(c)                   // typed session or undefined
+auth.getToken(c)                     // upstream token convenience
+auth.backendHeaders(c)               // { Authorization: 'Bearer ...' }
+auth.require()                       // guard: 401 if anonymous
+auth.requireRole(s => s.role === 'admin')  // guard: 403 on mismatch
 ```
 
-### Methods
+Stateless mode (encrypted cookie, no store) is also supported:
 
-| Method | Description |
-|---|---|
-| `auth.login(c, backendResponse)` | Extracts session, stores it, sets httpOnly cookie |
-| `auth.logout(c)` | Deletes session, clears cookie |
-| `auth.middleware()` | Resolves cookie → session on every request, auto-refreshes tokens |
-| `auth.getSession(c)` | Returns typed session or `undefined` |
-| `auth.getToken(c)` | Returns the backend credential value |
-| `auth.backendHeaders(c)` | Returns `{ Authorization: 'Bearer ...' }` for proxying to backends |
-| `auth.require()` | Guard middleware — rejects unauthenticated requests with 401 |
-| `auth.requireRole(check, msg?)` | Guard middleware — rejects with 403 if `check(session)` returns false |
-
-### Stateless sessions
-
-No server-side store. Session data is AES-GCM encrypted in the cookie itself.
-
-```typescript
-const auth = createAuth<MySession>({
+```ts
+const auth = createAuth<Session>({
   stateless: { secret: Deno.env.get('SESSION_SECRET')! },
-  extract: (res: any) => ({ ... }),
+  // ...same other options
 })
-```
-
-### Backend credential relay
-
-The browser never sees backend tokens. The toolkit stores them in the session and injects them on outgoing requests.
-
-```typescript
-const auth = createAuth<MySession>({
-  store: createMemoryStore(),
-  credential: { field: 'token' },
-  extract: (res: any) => ({ ... }),
-})
-
-// In routes
-app.get('/orders', async (c) => {
-  const res = await fetch('http://order-svc:4001/orders', {
-    headers: auth.backendHeaders(c),
-  })
-  return c.json(await res.json())
-})
-```
-
-Custom credential format:
-
-```typescript
-credential: {
-  field: 'apiKey',
-  header: 'X-API-Key',
-  format: (v) => v,
-}
 ```
 
 ### Session stores
 
-| Store | Ships with | Persistence |
-|---|---|---|
-| `createMemoryStore()` | Core | None — lost on restart |
-| Stateless (encrypted cookie) | Core | Stateless — no server store |
-| Deno KV | `adapters/deno` | Persistent |
-| Redis | User-land | Persistent |
-| Cloudflare KV | `adapters/cloudflare` | Persistent |
+- `createMemoryStore<T>()` — in-process, suitable for single-instance VPS
+- `createKvSessionStore<T>(kv)` — Cloudflare KV (`@jayobado/hono-kit/cf-stores`)
+- `createDurableObjectSessionStore<T>(ns)` — Cloudflare DO (`@jayobado/hono-kit/cf-stores`)
 
-All stores implement `SessionStore<T>`:
+Implement `SessionStore<T>` for custom backends (Redis, Postgres, etc).
 
-```typescript
-interface SessionStore<T> {
-  get: (sid: string) => Promise<T | undefined>
-  set: (sid: string, data: T, ttl?: number) => Promise<void>
-  delete: (sid: string) => Promise<void>
-  touch?: (sid: string, ttl?: number) => Promise<void>
-}
-```
+### Routes
 
----
+`defineRoute` declares a single route with optional input schemas (body,
+query, params) and guards. `defineRoutes` composes an array of descriptors
+into a mountable Hono sub-app.
 
-## API layer
+```ts
+import { z } from 'zod'
 
-The API layer is plain Hono routes. Bring your own backend protocol.
+const orderSchema = z.object({
+  items: z.array(z.object({ sku: z.string(), qty: z.number() })),
+  total: z.number(),
+})
 
-### REST
-
-```typescript
-api: {
-  prefix: '/api',
-  routes: (app) => {
-    app.get('/users/:id', async (c) => {
-      const user = await db.query('SELECT * FROM users WHERE id = ?', [c.req.param('id')])
-      return c.json(user)
-    })
-  },
-}
-```
-
-### tRPC
-
-```typescript
-import { trpcServer } from '@hono/trpc-server'
-
-api: {
-  prefix: '/api',
-  routes: (app) => {
-    app.use('/trpc/*', trpcServer({
-      router: appRouter,
-      createContext: (_opts, c) => ({
-        session: auth.getSession(c),
-      }),
-    }))
-  },
-}
-```
-
-### Gateway — proxying to backend services
-
-```typescript
-api: {
-  prefix: '/api',
-  middleware: [auth.middleware()],
-  routes: (app) => {
-    // REST backend
-    app.get('/orders', async (c) => {
-      const res = await fetch('http://order-svc:4001/orders', {
-        headers: auth.backendHeaders(c),
-      })
-      return c.json(await res.json())
-    })
-
-    // Connect-RPC backend
-    app.get('/users/:id', async (c) => {
-      const client = createConnectClient(UserService, {
-        baseUrl: 'http://user-svc:4000',
-        headers: auth.backendHeaders(c),
-      })
-      return c.json(await client.getUser({ id: c.req.param('id') }))
-    })
-
-    // Aggregation — multiple backends, one response
-    app.get('/dashboard', async (c) => {
-      const [profile, orders, notifications] = await Promise.all([
-        users.getProfile({ userId: auth.getSession(c)!.userId }),
-        orders.listRecent({ userId: auth.getSession(c)!.userId }),
-        fetch('http://notify-svc:4002/unread', { headers: auth.backendHeaders(c) }).then(r => r.json()),
-      ])
-      return c.json({ profile, orders, notifications })
-    })
-  },
-}
-```
-
----
-
-## WebSocket
-
-### Connection management
-
-```typescript
-ws: {
-  path: '/ws',
-  authenticate: async (c) => {
-    const session = auth.getSession(c)
-    if (!session) return false
-    return session
-  },
-  onConnect: (conn, channels) => {
-    channels.join(`org:${conn.session.orgId}`)
-    channels.join(`user:${conn.session.userId}`)
-  },
-  onMessage: (conn, data, channels) => {
-    if (data.type === 'subscribe') channels.join(data.channel)
-    if (data.type === 'message') {
-      channels.broadcast(data.channel, {
-        from: conn.session.email,
-        body: data.body,
-      }, conn.id)
-    }
-  },
-  onClose: (conn) => {
-    console.log(`${conn.session.email} disconnected`)
-  },
-}
-```
-
-### Heartbeat
-
-Ping/pong keeps connections alive and detects stale clients:
-
-```typescript
-ws: {
-  ping: { interval: 30_000, timeout: 10_000 },
-}
-```
-
----
-
-## Events
-
-### Event bus
-
-Decouples "something happened" from "who needs to know." API routes emit events, the bus routes them to WebSocket and SSE clients.
-
-```typescript
-import { createServer, createEventBus } from '@jayobado/hono-kit'
-
-const events = createEventBus()
-
-await createServer({
-  ws: {
-    path: '/ws',
-    events,
-    authenticate: async (c) => auth.getSession(c) || false,
-    onConnect: (conn, channels) => {
-      channels.join(`user:${conn.session.userId}`)
+const routes = defineRoutes([
+  defineRoute({
+    method: 'POST',
+    path: '/orders',
+    input: { body: orderSchema },
+    guards: [auth.require(), auth.requireRole(s => s.role === 'admin')],
+    handler: async (c, { body }) => {
+      // body is typed { items: [...], total: number }
+      return c.json(await db.createOrder(body), 201)
     },
-  },
+  }),
+])
 
-  api: {
-    routes: (app) => {
-      app.post('/orders', async (c) => {
-        const order = await createOrder(c)
-        events.emit(`user:${order.userId}`, { type: 'order:created', order })
-        return c.json(order)
-      })
-    },
-  },
+app.route('/api', routes)
+```
+
+Works with any [Standard Schema](https://standardschema.dev) implementation —
+Zod, Valibot, ArkType, etc.
+
+### Upstream
+
+`createUpstream` builds outbound requests with credentials, correlation
+headers, and JSON defaults.
+
+```ts
+const upstream = createUpstream({
+  baseUrl: 'http://internal-api',
+  credentialFrom: (c) => auth.backendHeaders(c),
+  defaultHeaders: { 'X-Service': 'admin-bff' },
+  requestIdHeader: 'X-Request-Id',
+  timeout: 10_000,
+})
+
+// In handlers:
+const orders = await upstream.get<Order[]>(c, '/orders')      // throws UpstreamError on !ok
+const created = await upstream.post<Order>(c, '/orders', body)
+const result = await upstream.fetch(c, '/orders', { method: 'GET' })  // low-level
+return await upstream.proxy(c, '/orders')                     // forward + strip cookie
+
+// For tRPC / Connect / GraphQL / gRPC clients:
+const headers = upstream.headers(c)  // pass to any client's transport
+```
+
+Errors throw `UpstreamError` carrying the status, parsed body, and original Response.
+
+### SPA modes
+
+Three serving strategies:
+
+```ts
+// Dev mode — lazy transpile, HMR, file watch (Deno only)
+const dev = createDevServer({
+  root: './client',
+  importMap: './deno.json',
+  compilerOptions: { jsxImportSource: 'vue' },  // for lolo-ui
+})
+// ...later: dev.dispose() on shutdown
+
+// Transpile mode — eager warm, no HMR, pre-gzipped (Deno VPS prod)
+const t = await createTranspileServer({
+  root: './client',
+  importMap: './deno.json',
+})
+
+// Build mode — pre-bundled static files (works on any runtime)
+const assets = serveAssets({
+  root: './dist',
+  manifest: JSON.parse(await Deno.readTextFile('./dist/manifest.json')),
 })
 ```
 
-### SSE streaming
+`createBff({ spa: dev.app })`, `createBff({ spa: t.app })`, or
+`createBff({ spa: assets })` — same shape.
 
-Lightweight alternative to WebSocket for server-to-client only:
+Dev and transpile modes work with **TS + JSX** stacks (lolo-ui, React, Solid,
+Preact, Vue JSX). For Vue SFCs, Svelte, or anything needing framework-specific
+compilation, build with the framework's tooling and use `serveAssets`.
 
-```typescript
-api: {
-  routes: (app) => {
-    app.get('/events/:channel', (c) => {
-      return events.stream(c, c.req.param('channel'))
-    })
-  },
-}
-```
+### Build
 
-Client:
-```typescript
-const es = new EventSource('/api/events/user:123')
-es.onmessage = (e) => console.log(JSON.parse(e.data))
-```
-
-### Horizontal scaling
-
-Default is in-process. Pass a `BroadcastAdapter` for multi-process:
-
-```typescript
-const events = createEventBus(redisBroadcastAdapter)
-```
-
-```typescript
-interface BroadcastAdapter {
-  publish: (channel: string, data: unknown) => Promise<void>
-  subscribe: (channel: string, handler: (data: unknown) => void) => Promise<void>
-  unsubscribe: (channel: string) => Promise<void>
-}
-```
-
----
-
-## Build
-
-Production bundler for static deployment.
-
-```typescript
+```ts
 import { build } from '@jayobado/hono-kit'
 
 await build({
-  entry: './client/app.ts',
+  entry: './client/main.tsx',
   outDir: './dist',
   importMap: './deno.json',
   minify: true,
 })
+
+// Produces:
+//   dist/main.abc12345.js
+//   dist/manifest.json   { "main.js": "main.abc12345.js", ... }
+//   dist/index.html      (verbatim, with __ASSET() placeholders)
+//   dist/<other static files>
 ```
 
-Output:
+In your `index.html`, reference assets with placeholders:
 
-dist/
-├── index.html          ← script tag rewritten to hashed bundle
-├── app.a1b2c3d4.js     ← bundled, content-hashed
-├── styles.css          ← copied
-└── assets/
-└── fonts/          ← copied
+```html
+<link rel="stylesheet" href='__ASSET("style.css")__'>
+<script type="module" src='__ASSET("main.js")__'></script>
+```
 
----
+`serveAssets` substitutes these at serve time using the manifest.
 
-## Middleware
+### WebSocket
 
-Built-in middleware applied automatically:
+`createChannels` manages connection state and broadcast. `createWsHandler`
+upgrades requests and runs lifecycle hooks. They're independent — use one
+without the other.
 
-```typescript
+```ts
+const channels = createChannels()
+
+const ws = createWsHandler({
+  authenticate: (c) => auth.getSession(c) ?? false,
+  onConnect: (conn) => {
+    channels.add(conn)
+    channels.join(conn, 'orders')
+  },
+  onMessage: (conn, data) => {
+    channels.broadcast('chat', { from: conn.id, data })
+  },
+  onClose: (conn) => channels.remove(conn),
+  pingInterval: 30_000,
+})
+
+app.get('/ws', ws)
+
+// Bus → WS fanout (explicit, traceable):
+events.on('orders', msg => channels.broadcast('orders', msg))
+```
+
+### Events
+
+In-process pub/sub with SSE support:
+
+```ts
+const events = createEventBus()
+events.on('orders', msg => console.log('order:', msg))
+events.emit('orders', { id: 'o1' })
+
+app.get('/events/orders', c => events.stream(c, 'orders'))
+```
+
+For multi-instance pubsub (Redis, etc), write a thin wrapper that publishes
+to your transport on `emit` and subscribes back to the bus.
+
+### Middleware
+
+```ts
 import {
-  requestId,        // crypto.randomUUID() per request
-  errorHandler,     // catches errors, returns 500
-  securityHeaders,  // X-Frame-Options, X-Content-Type-Options, etc.
-  accessLog,        // method, path, status, duration
-  compress,         // gzip for text responses
+  requestId, accessLog, errorHandler, securityHeaders, compress,
 } from '@jayobado/hono-kit'
+
+app.use('*', requestId())
+app.use('*', accessLog())
+app.use('*', errorHandler())
+app.use('*', securityHeaders())
+app.use('*', compress())
 ```
 
-Custom middleware:
+### Health
 
-```typescript
-await createServer({
-  middleware: [myCustomMiddleware],
-  api: {
-    middleware: [apiOnlyMiddleware],
+```ts
+import { mountHealth } from '@jayobado/hono-kit'
+
+mountHealth(app, {
+  version: '1.2.3',
+  checks: {
+    db: () => db.ping(),
+    cache: () => redis.ping(),
   },
 })
+
+// GET /health   → { status: 'ok', version: '1.2.3' }
+// GET /ready    → 200 if all checks pass, 503 otherwise
+// GET /version  → { version: '1.2.3' }
 ```
 
----
+The archetype builders accept `health` directly.
 
-## Logging
+### Runtime helpers
 
-Buffered file logger with daily rotation. No filesystem I/O on the request path.
+```ts
+import { serveDeno, serveNode, onShutdown } from '@jayobado/hono-kit'
 
-```typescript
-import { Log } from '@jayobado/hono-kit'
+// Register cleanup hooks
+onShutdown(() => dev.dispose())
+onShutdown(() => store.dispose())
+onShutdown(() => db.close())
 
-Log.debug('cache warmed')
-Log.info('server running')
-Log.warn('slow response')
-Log.error('connection failed')
-await Log.flush()
+// Serve — drains hooks on SIGINT/SIGTERM
+const server = await serveDeno(app, { port: 3000 })
+// or
+const server = await serveNode(app, { port: 3000 })
+
+await server.finished  // wait for graceful stop
 ```
 
-logs/
-├── debug_20260430.log
-├── info_20260430.log
-├── warn_20260430.log
-└── error_20260430.log
+For Cloudflare Workers, no runtime helper is needed:
 
-On Cloudflare Workers, logs go to console only.
+```ts
+export default { fetch: app.fetch }
+```
 
----
+## Archetype composers
 
-## Deployment
+`createApiApp` and `createBff` are thin composers — they only wire what you
+pass them. No surprise middleware, no auto-mounted CORS, no hidden behavior.
 
-| Platform | Adapter | SPA strategy | Command |
-|---|---|---|---|
-| Local dev | `deno` | `lazy` + HMR | `deno task dev` |
-| Deno Deploy | `deno` | `eager` | Push repo |
-| VPS + Deno | `deno` | `eager` | `deno task start` |
-| VPS + Node | `node` | `eager` or `build` | `node server.js` |
-| Cloudflare Workers | `cloudflare` | `build` | `wrangler deploy` |
-| Static (Pages/Vercel/Netlify) | n/a | `build` | `deno task build` |
+```ts
+// API service
+const app = createApiApp({
+  middleware: [requestId(), accessLog(), errorHandler()],
+  auth,
+  routes: defineRoutes([...]),
+  routesPrefix: '/',           // default '/'
+  health: { version: '1.0.0' },
+})
 
-### Deno Deploy
-
-```typescript
-const isDeploy = Deno.env.get('DENO_DEPLOYMENT_ID') !== undefined
-
-await createServer({
-  host: '0.0.0.0',
-  port: parseInt(Deno.env.get('PORT') ?? '3000'),
-  spa: { root: './client', strategy: isDeploy ? 'eager' : 'lazy', hmr: !isDeploy },
+// BFF
+const bff = createBff({
+  middleware: [requestId(), accessLog(), errorHandler()],
+  auth,
+  api: defineRoutes([...]),    // mounted at apiPrefix
+  apiPrefix: '/api',           // default '/api'
+  spa,                          // mounted at '/' last; api/health/ws take precedence
+  ws: { path: '/ws', handler: createWsHandler({ ... }) },
+  health: { version: '1.0.0' },
 })
 ```
+
+Both return a Hono app you can extend directly (`bff.get(...)`, `bff.use(...)`).
+
+## Deployment patterns
+
+### Single Deno VPS
+
+```ts
+// main.ts
+import { serveDeno, onShutdown } from '@jayobado/hono-kit'
+
+const dev = isDev
+  ? createDevServer({ root: './client', importMap: './deno.json' })
+  : null
+const spa = dev?.app ?? serveAssets({ root: './dist' })
+
+const bff = createBff({ auth, api, spa, /* ... */ })
+
+if (dev) onShutdown(() => dev.dispose())
+await serveDeno(bff, { port: 3000 })
+```
+
+### Multi-portal (admin + user from one VPS)
+
+```ts
+// admin-bff.ts (run as one process)
+const auth = createAuth({
+  cookie: { name: 'admin_sid', domain: '.example.com' },
+  // ...
+})
+await serveDeno(createBff({ auth, api, spa }), { port: 3001 })
+
+// user-bff.ts (run as a second process)
+const auth = createAuth({
+  cookie: { name: 'user_sid', domain: '.example.com' },
+  // ...
+})
+await serveDeno(createBff({ auth, api, spa }), { port: 3002 })
+```
+
+Different cookie names prevent session bleed; nginx routes by subdomain.
 
 ### Cloudflare Workers
 
-```typescript
+```ts
 // worker.ts
-import { createApp } from '@jayobado/hono-kit'
+import { createKvSessionStore } from '@jayobado/hono-kit/cf-stores'
 
-export default createApp({
-  api: { routes: (app) => { ... } },
-})
+export default {
+  async fetch(req: Request, env: Env) {
+    const auth = createAuth({
+      store: createKvSessionStore(env.SESSIONS),
+      // ...
+    })
+    const bff = createBff({ auth, api, spa: serveAssets({ root: './dist' }) })
+    return bff.fetch(req, env)
+  },
+}
 ```
 
-Pre-build SPA and deploy via Pages. Workers serves the API.
+CF requires pre-built assets — use `build` mode, not dev or transpile.
 
----
+## Frontend stack compatibility
 
-## Project structure
+| Stack                    | Dev mode | Transpile mode | Build mode |
+|--------------------------|----------|----------------|------------|
+| lolo-ui (Vue JSX)        | ✓        | ✓              | ✓          |
+| React + Vite             | ~ (TS only) | ~ (TS only) | ✓          |
+| Solid                    | ✓        | ✓              | ✓          |
+| Preact                   | ✓        | ✓              | ✓          |
+| Vue SFCs (`.vue` files)  | ✗        | ✗              | ✓          |
+| Svelte                   | ✗        | ✗              | ✓          |
+| Plain HTML + TS modules  | ✓        | ✓              | ✓          |
+| Static site (any SSG)    | —        | —              | ✓          |
 
-```
-hono-kit/
-├── mod.ts              # barrel export
-├── types.ts            # all interfaces
-├── server.ts           # createServer(), createApp()
-├── middleware.ts        # requestId, errorHandler, accessLog, securityHeaders, compress
-├── auth.ts             # createAuth, createMemoryStore, session middleware, encryption
-├── spa.ts              # SPA serving — transpile, static files, HMR, fallback
-├── transpile.ts        # transpiler abstraction, import rewriting, cache
-├── events.ts           # EventBus — emit/subscribe, SSE streaming
-├── ws.ts               # WebSocket — ConnectionManager, channels, auth upgrade
-├── assets.ts           # static asset serving with cache headers
-├── bundle.ts           # production build tool
-├── logger.ts           # buffered daily rotating file logger
-└── adapters/
-├── deno.ts         # Deno.serve, file I/O, @deno/emit transpiler
-├── node.ts         # @hono/node-server, fs, esbuild transpiler
-└── cloudflare.ts   # Workers export adapter, no filesystem, esbuild transpiler
-```
+For stacks needing framework-specific compilation, build with the framework's
+tooling and use `serveAssets` to serve the dist folder. The auth, upstream,
+and routes layers don't care what's in the SPA.
+
+## Design principles
+
+1. **Portable by default, runtime-specific by opt-in.** Primitives that need
+   Deno (dev SPA, transpile mode) say so. Build mode and the rest work anywhere.
+
+2. **No god-functions.** Each composer only does what you pass it. No hidden
+   middleware, no auto-mounted CORS, no surprise behavior.
+
+3. **Descriptors over registration.** `defineRoute` returns data; `defineRoutes`
+   composes data into a Hono app. Future OpenAPI generation, route listing, and
+   contract testing fall out of this for free.
+
+4. **One protocol, many clients.** This kit ships HTTP/JSON and a header
+   builder. For ConnectRPC, tRPC, GraphQL, or gRPC, use the official client
+   and pass `upstream.headers(c)` to its transport.
+
+5. **Cookie-only auth.** Tokens never reach the browser. The BFF holds the
+   session; the client has only a `httpOnly; secure; sameSite` cookie.
 
 ## License
 
-MIT — Copyright 2026 Jeremy Obado
+MIT. See [LICENSE](LICENSE).

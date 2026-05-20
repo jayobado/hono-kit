@@ -1,14 +1,27 @@
 /**
  * @module
- * Event bus for pub/sub messaging. Routes events to WebSocket connections
- * and SSE streams. Supports BroadcastAdapter for horizontal scaling.
+ * In-process event bus for pub/sub messaging across server-side listeners and
+ * SSE streams. For cross-process broadcasting (Redis, etc), write a thin
+ * wrapper that publishes to your transport on every emit and subscribes back
+ * to the bus on incoming messages.
+ *
+ *   const events = createEventBus()
+ *   events.on('orders', (msg) => console.log('order:', msg))
+ *   events.emit('orders', { id: 'o1' })
+ *
+ *   // SSE endpoint:
+ *   app.get('/events/orders', (c) => events.stream(c, 'orders'))
  */
+
 import type { Context } from 'hono'
-import type { EventBus, BroadcastAdapter } from './types.ts'
 
+export interface EventBus {
+	emit(channel: string, data: unknown): void
+	on(channel: string, handler: (data: unknown) => void): () => void
+	stream(c: Context, channel: string): Response
+}
 
-/** Creates an event bus for pub/sub messaging across WebSocket, SSE, and server-side listeners. */
-export function createEventBus(adapter?: BroadcastAdapter): EventBus {
+export function createEventBus(): EventBus {
 	const listeners = new Map<string, Set<(data: unknown) => void>>()
 	const sseStreams = new Map<string, Set<ReadableStreamDefaultController>>()
 
@@ -20,21 +33,13 @@ export function createEventBus(adapter?: BroadcastAdapter): EventBus {
 		}
 		set.add(handler)
 
-		if (adapter) {
-			adapter.subscribe(channel, handler)
-		}
-
 		return () => {
 			set!.delete(handler)
 			if (set!.size === 0) listeners.delete(channel)
-			if (adapter) {
-				adapter.unsubscribe(channel)
-			}
 		}
 	}
 
 	function emit(channel: string, data: unknown): void {
-		// Local listeners
 		const set = listeners.get(channel)
 		if (set) {
 			for (const handler of set) {
@@ -44,7 +49,6 @@ export function createEventBus(adapter?: BroadcastAdapter): EventBus {
 			}
 		}
 
-		// SSE streams
 		const streams = sseStreams.get(channel)
 		if (streams) {
 			const msg = `data: ${JSON.stringify(data)}\n\n`
@@ -60,11 +64,6 @@ export function createEventBus(adapter?: BroadcastAdapter): EventBus {
 				streams.delete(controller)
 			}
 			if (streams.size === 0) sseStreams.delete(channel)
-		}
-
-		// Broadcast adapter
-		if (adapter) {
-			adapter.publish(channel, data).catch(() => { })
 		}
 	}
 
