@@ -1,0 +1,15 @@
+{
+	"imports": {
+		"@jayobado/hono-kit": "jsr:@jayobado/hono-kit@^0.4",
+		"@jayobado/hono-kit/cf-stores": "jsr:@jayobado/hono-kit@^0.4/cf-stores",
+		"hono": "npm:hono@^4.12.0"
+	},
+	"tasks": {
+		"build": "deno run -A scripts/build.ts"
+	},
+	"compilerOptions": {
+		"strict": true,
+		"jsx": "react-jsx",
+		"jsxImportSource": "hono/jsx"
+	}
+}
